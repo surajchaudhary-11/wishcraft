@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { WishConfig } from '../types';
 import { INITIAL_SAMPLE_WISHES, DEFAULT_NEW_WISH } from '../data/sampleWishes';
 import { WishContext } from './WishContextBase';
-import { api } from '../services/api';
+import { api, BACKEND_HOST } from '../services/api';
 import { useAuth } from './AuthContext';
 
 const STORAGE_KEY = 'wishcraft_saved_creations';
@@ -158,7 +158,7 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Prepend host if relative path returned
       const fullUrl = res.url.startsWith('http')
         ? res.url
-        : `http://localhost:8000${res.url}`;
+        : `${BACKEND_HOST}${res.url}`;
       return fullUrl;
     } catch (error) {
       console.warn('Backend upload failed, using local fallback:', error);

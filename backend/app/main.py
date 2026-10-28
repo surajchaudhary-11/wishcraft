@@ -42,6 +42,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=r"^https://.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,6 +55,7 @@ app.mount("/api/v1/uploads", StaticFiles(directory=upload_path), name="uploads")
 
 # Health Check
 @app.get("/health", tags=["Health"])
+@app.get("/api/v1/health", tags=["Health"])
 def health_check(db: Session = Depends(get_db)):
     """Health check endpoint verifying API and database operational status."""
     db_status = "healthy"

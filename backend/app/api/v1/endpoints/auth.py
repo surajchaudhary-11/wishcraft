@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session
+from backend.app.core.config import settings
 from backend.app.api.v1.deps import get_db, get_current_user
 from backend.app.core.security import (
     hash_password, verify_password, create_access_token,
@@ -145,11 +146,14 @@ def forgot_password(req: PasswordResetRequest, db: Session = Depends(get_db)):
     user.reset_token = reset_token
     db.commit()
 
-    # In production without SMTP, return token in payload for developer verification
-    return {
-        "message": "Password reset token generated successfully.",
-        "reset_token": reset_token
+    # In development/test environments, return token in payload for developer verification
+    response_data = {
+        "message": "If that email is registered, password reset instructions have been generated."
     }
+    if settings.ENVIRONMENT != "production":
+        response_data["reset_token"] = reset_token
+
+    return response_data
 
 
 @router.post("/reset-password")

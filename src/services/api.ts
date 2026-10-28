@@ -2,7 +2,17 @@
  * Central API client for WishCraft backend communication.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+function resolveApiBaseUrl(): string {
+  let raw = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+  raw = raw.trim().replace(/\/+$/, '');
+  if (!raw.endsWith('/api/v1')) {
+    raw = `${raw}/api/v1`;
+  }
+  return raw;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
+export const BACKEND_HOST = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
 export class ApiError extends Error {
   status: number;
