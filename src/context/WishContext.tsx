@@ -8,6 +8,13 @@ import { useAuth } from './AuthContext';
 const STORAGE_KEY = 'wishcraft_saved_creations';
 const DRAFT_KEY = 'wishcraft_active_draft';
 
+function sanitizeMediaUrl(url?: string): string {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${BACKEND_HOST}${path}`;
+}
+
 function mapBackendToWishConfig(backendItem: any): WishConfig {
   return {
     id: backendItem.id,
@@ -17,10 +24,10 @@ function mapBackendToWishConfig(backendItem: any): WishConfig {
     relationship: backendItem.relationship || 'Friend',
     message: backendItem.message || '',
     tone: backendItem.tone || 'Heartfelt',
-    photoUrl: backendItem.photo_url || '',
+    photoUrl: sanitizeMediaUrl(backendItem.photo_url),
     photoMemories: (backendItem.photo_memories || []).map((m: any) => ({
       id: m.id || m.asset_id,
-      url: m.url,
+      url: sanitizeMediaUrl(m.url),
       caption: m.caption,
     })),
     templateId: backendItem.template_id || 'blush-celebration',
@@ -265,7 +272,15 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Publish current wish
   const publishCurrentWish = async (options?: { custom_slug?: string; privacy?: string; pin?: string }) => {
     // 1. Ensure draft is saved first
-    const saved = await saveCurrentWish();
+    let saved = await saveCurrentWish();
+
+    // If still a local draft ID, force persistence to backend before publishing
+    if (!saved.id || saved.id.startsWith('draft-') || saved.id.startsWith('wish-')) {
+      const payload = mapWishConfigToBackend(saved);
+      const res = await api.creations.create(payload);
+      saved = mapBackendToWishConfig(res);
+      setCurrentWish(saved);
+    }
 
     // 2. Call backend publish
     const pubRes = await api.public.publish(saved.id, {

@@ -25,17 +25,27 @@ export const PublishPage: React.FC = () => {
 
   const [copied, setCopied] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
   const [privacy, setPrivacy] = useState<'public' | 'unlisted' | 'pin_protected'>('public');
   const [pinCode, setPinCode] = useState('');
-  const [publishedUrl, setPublishedUrl] = useState<string>(() => {
-    if (currentWish.slug) {
-      return `${window.location.origin}/wish/${currentWish.slug}`;
-    }
-    return '';
-  });
+  const [publishedUrl, setPublishedUrl] = useState<string>('');
+
+  // Always derive public URL from the slug using current browser window origin
+  const effectiveSlug = currentWish.slug || (publishedUrl ? publishedUrl.split('/wish/').pop() : '');
+  const activeUrl = effectiveSlug ? `${window.location.origin}/wish/${effectiveSlug}` : '';
 
   const handlePublish = async (overridePrivacy?: 'public' | 'unlisted' | 'pin_protected') => {
+    if (!currentWish.recipientName?.trim()) {
+      setPublishError('Recipient name is required before publishing.');
+      return;
+    }
+    if (!currentWish.message?.trim()) {
+      setPublishError('Celebration message is required before publishing.');
+      return;
+    }
+
     setIsPublishing(true);
+    setPublishError(null);
     const selectedPrivacy = overridePrivacy || privacy;
     try {
       const res = await publishCurrentWish({
@@ -46,18 +56,19 @@ export const PublishPage: React.FC = () => {
       triggerFireworks();
       showToast('Celebration published live!', 'success');
     } catch (e: any) {
+      setPublishError(e.message || 'Failed to publish celebration.');
       showToast(e.message || 'Failed to publish celebration.', 'error');
     } finally {
       setIsPublishing(false);
     }
   };
 
-  // Automatically publish if not yet published
+  // Automatically publish once if valid draft is ready and not yet published
   useEffect(() => {
-    if (!currentWish.slug) {
+    if (!currentWish.slug && currentWish.recipientName?.trim() && currentWish.message?.trim()) {
       handlePublish();
     }
-  }, [currentWish.slug]);
+  }, [currentWish.slug, currentWish.recipientName, currentWish.message]);
 
   const handleUnpublish = async () => {
     if (!currentWish.id) return;
@@ -69,16 +80,28 @@ export const PublishPage: React.FC = () => {
     }
   };
 
-  const activeUrl = publishedUrl || (currentWish.slug ? `${window.location.origin}/wish/${currentWish.slug}` : '');
-
-  const handleCopyLink = () => {
+  const handleCopyLink = async () => {
     if (!activeUrl) return;
     try {
-      navigator.clipboard.writeText(activeUrl);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(activeUrl);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = activeUrl;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+      }
       setCopied(true);
       showToast('Live celebration link copied to clipboard!', 'success');
       setTimeout(() => setCopied(false), 3000);
-    } catch {
+    } catch (err) {
+      console.warn('Clipboard copy error:', err);
       showToast('Failed to copy. Please manually copy the link.', 'error');
     }
   };
@@ -160,7 +183,14 @@ export const PublishPage: React.FC = () => {
               <input
                 type="text"
                 readOnly
-                value={activeUrl || 'Generating live celebration link...'}
+                value={
+                  activeUrl ||
+                  (isPublishing
+                    ? 'Generating live celebration link...'
+                    : publishError
+                    ? `Publishing issue: ${publishError}`
+                    : 'Crafting celebration link...')
+                }
                 className="flex-1 px-4 py-3 rounded-xl border border-plum-200 bg-plum-50/50 text-sm font-mono text-plum-900 select-all focus:outline-none"
               />
               <button
