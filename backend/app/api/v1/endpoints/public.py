@@ -2,6 +2,7 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from backend.app.api.v1.deps import get_db, get_current_user, get_optional_current_user
@@ -27,6 +28,15 @@ def _slugify(text: str) -> str:
     return s.strip("-") or "celebration"
 
 
+def resolve_public_url(slug: str) -> str:
+    """
+    Safely construct the public celebration URL using the validated, configured frontend origin.
+    Never uses arbitrary untrusted headers or localhost in production.
+    """
+    base = settings.effective_frontend_url
+    return f"{base}/wish/{slug}"
+
+
 def _generate_unique_slug(base_name: str, occasion: str, db: Session) -> str:
     """Generate a unique, collision-resistant slug like sophia-birthday-a8f31c."""
     clean_name = _slugify(base_name)
@@ -45,6 +55,7 @@ def _generate_unique_slug(base_name: str, occasion: str, db: Session) -> str:
 def publish_creation(
     creation_id: str,
     pub_in: PublishRequest,
+    request: Request,
     current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
@@ -66,6 +77,10 @@ def publish_creation(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Celebration not found."
             )
+    else:
+        # If guest creation and user is now authenticated, claim ownership
+        if current_user:
+            creation.owner_id = current_user.id
 
     # Validate minimal required fields
     if not creation.recipient_name or not creation.recipient_name.strip():
@@ -133,7 +148,7 @@ def publish_creation(
     db.commit()
     db.refresh(pub_record)
 
-    public_url = f"{settings.FRONTEND_URL}/wish/{pub_record.slug}"
+    public_url = resolve_public_url(pub_record.slug)
 
     return PublishResponse(
         id=pub_record.id,
