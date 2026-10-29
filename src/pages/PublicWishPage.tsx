@@ -222,21 +222,21 @@ export const PublicWishPage: React.FC = () => {
   // 4. Render Celebration Website!
   return (
     <div className="min-h-screen flex flex-col relative">
-      <main className="flex-1">
+      <main className="flex-1 flex flex-col pb-14 sm:pb-0 [&>*]:flex-1">
         <TemplateRenderer wish={wish!} isPreview={false} />
       </main>
 
       {/* Floating Footer watermark / badge */}
-      <footer className="fixed bottom-3 right-3 z-40">
+      <footer className="fixed bottom-2.5 right-2.5 sm:bottom-3 sm:right-3 z-40">
         <Link
           to="/"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/90 backdrop-blur-md border border-plum-100 shadow-soft text-slate-700 hover:text-plum-950 text-xs font-semibold transition-all hover:scale-105"
+          className="flex items-center gap-1.5 sm:gap-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-white/90 backdrop-blur-md border border-plum-100 shadow-soft text-slate-700 hover:text-plum-950 text-[11px] sm:text-xs font-semibold transition-all hover:scale-105"
         >
-          <Gift className="w-3.5 h-3.5 text-rosewood-600" />
+          <Gift className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rosewood-600" />
           <span>Made with WishCraft</span>
-          <ArrowRight className="w-3 h-3 text-slate-400" />
+          <ArrowRight className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400" />
         </Link>
       </footer>
     </div>
