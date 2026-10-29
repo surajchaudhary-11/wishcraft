@@ -28,7 +28,7 @@ def test_owner_deletion_unpublishes_public_url(client: TestClient, auth_headers:
     assert "no-store" in site_res.headers.get("Cache-Control", "")
     assert site_res.json()["slug"] == slug
 
-    # 4. Owner deletes the creation
+    # 4. Owner deletes the creation (authenticated-owner deletion)
     del_res = client.delete(f"/api/v1/creations/{creation_id}", headers=auth_headers)
     assert del_res.status_code == 200
     assert "deleted" in del_res.json()["message"].lower()
@@ -68,19 +68,19 @@ def test_unauthorized_user_cannot_delete_creation(client: TestClient, auth_heade
 
     # 2. Register an attacker (intruder)
     attacker_reg = client.post("/api/v1/auth/register", json={
-        "email": "malicious_attacker@example.com",
+        "email": "cross_user_attacker@example.com",
         "password": "AttackerPass123!",
         "display_name": "Malicious User"
     })
     assert attacker_reg.status_code == 201
     attacker_login = client.post("/api/v1/auth/login", json={
-        "email": "malicious_attacker@example.com",
+        "email": "cross_user_attacker@example.com",
         "password": "AttackerPass123!"
     })
     attacker_token = attacker_login.json()["access_token"]
     attacker_headers = {"Authorization": f"Bearer {attacker_token}"}
 
-    # 3. Attacker attempts to delete owner's creation
+    # 3. Attacker attempts to delete owner's creation (cross-user access blocked)
     intruder_del = client.delete(f"/api/v1/creations/{creation_id}", headers=attacker_headers)
     assert intruder_del.status_code == 404
 
@@ -96,39 +96,134 @@ def test_unauthorized_user_cannot_delete_creation(client: TestClient, auth_heade
     assert site_res_after.status_code == 200
 
 
-def test_guest_creation_deletion_unpublishes_public_url(client: TestClient):
+def test_guest_token_authorization_and_unauthorized_deletion_prevention(client: TestClient):
     # 1. Unauthenticated guest creates a celebration
     c_res = client.post("/api/v1/creations", json={
         "occasion": "birthday",
-        "recipient_name": "Guest Celebration",
-        "sender_name": "Anonymous Guest",
-        "message": "Testing guest creation deletion and public site unpublishing.",
+        "recipient_name": "Guest Security Target",
+        "sender_name": "Guest Creator",
+        "message": "Testing guest token security.",
         "template_id": "cute-playful"
     })
     assert c_res.status_code == 201
-    creation_id = c_res.json()["id"]
+    c_data = c_res.json()
+    creation_id = c_data["id"]
+    guest_token = c_data.get("guest_token")
+    assert guest_token is not None
+    assert guest_token.startswith("gst_")
 
-    # 2. Guest publishes celebration
-    pub_res = client.post(f"/api/v1/public/publish/{creation_id}", json={
-        "privacy": "public"
-    })
+    # 2. Guest publishes celebration with valid guest token
+    pub_res = client.post(
+        f"/api/v1/public/publish/{creation_id}",
+        headers={"X-Guest-Token": guest_token},
+        json={"privacy": "public"}
+    )
     assert pub_res.status_code == 200
     slug = pub_res.json()["slug"]
 
-    # 3. Verify public site is active
+    # Verify public site is active
     site_res = client.get(f"/api/v1/public/sites/{slug}")
     assert site_res.status_code == 200
 
-    # 4. Guest deletes the celebration
-    del_res = client.delete(f"/api/v1/creations/{creation_id}")
+    # 3. ATTACK: Attacker knows UUID but has NO guest token -> deletion must be BLOCKED
+    unauth_del = client.delete(f"/api/v1/creations/{creation_id}")
+    assert unauth_del.status_code == 404
+
+    # 4. ATTACK: Attacker uses bogus/invalid guest token -> deletion must be BLOCKED
+    bad_token_del = client.delete(
+        f"/api/v1/creations/{creation_id}",
+        headers={"X-Guest-Token": "gst_invalid_forged_token_1234567890"}
+    )
+    assert bad_token_del.status_code == 404
+
+    # 5. ATTACK: Attacker tries to unpublish without token -> unpublish must be BLOCKED
+    unauth_unpub = client.post(f"/api/v1/public/unpublish/{creation_id}")
+    assert unauth_unpub.status_code == 404
+
+    # 6. ATTACK: Authenticated user tries to claim guest creation WITHOUT guest token -> BLOCKED
+    reg_res = client.post("/api/v1/auth/register", json={
+        "email": "unauthorized_claimer@example.com",
+        "password": "ClaimerPass123!",
+        "display_name": "Claimer"
+    })
+    assert reg_res.status_code == 201
+    claim_login = client.post("/api/v1/auth/login", json={
+        "email": "unauthorized_claimer@example.com",
+        "password": "ClaimerPass123!"
+    })
+    claim_headers = {"Authorization": f"Bearer {claim_login.json()['access_token']}"}
+
+    claim_attempt = client.put(
+        f"/api/v1/creations/{creation_id}",
+        headers=claim_headers,
+        json={"recipient_name": "Hijacked Name"}
+    )
+    assert claim_attempt.status_code == 404
+
+    # Verify site still active after all attack attempts
+    assert client.get(f"/api/v1/public/sites/{slug}").status_code == 200
+
+    # 7. LEGITIMATE GUEST DELETION: Guest uses authentic guest token -> DELETION SUCCEEDS
+    valid_del = client.delete(
+        f"/api/v1/creations/{creation_id}",
+        headers={"X-Guest-Token": guest_token}
+    )
+    assert valid_del.status_code == 200
+
+    # 8. Verify public site is now dead (HTTP 404)
+    assert client.get(f"/api/v1/public/sites/{slug}").status_code == 404
+
+
+def test_guest_valid_claim_with_guest_token(client: TestClient):
+    # 1. Guest creates creation
+    c_res = client.post("/api/v1/creations", json={
+        "occasion": "birthday",
+        "recipient_name": "Claiming Target",
+        "sender_name": "Anonymous",
+        "message": "Testing ownership claim with guest token.",
+        "template_id": "minimal-elegance"
+    })
+    creation_id = c_res.json()["id"]
+    guest_token = c_res.json()["guest_token"]
+
+    # 2. User registers and logs in
+    client.post("/api/v1/auth/register", json={
+        "email": "legit_claimer@example.com",
+        "password": "LegitPass123!",
+        "display_name": "Legit Owner"
+    })
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "legit_claimer@example.com",
+        "password": "LegitPass123!"
+    })
+    auth_headers = {"Authorization": f"Bearer {login_res.json()['access_token']}"}
+
+    # 3. User claims creation by supplying valid X-Guest-Token along with Bearer token
+    claim_res = client.put(
+        f"/api/v1/creations/{creation_id}",
+        headers={**auth_headers, "X-Guest-Token": guest_token},
+        json={"recipient_name": "Claimed Sophia"}
+    )
+    assert claim_res.status_code == 200
+    assert claim_res.json()["owner_id"] is not None
+
+    # 4. User publishes as authenticated owner
+    pub_res = client.post(
+        f"/api/v1/public/publish/{creation_id}",
+        headers=auth_headers,
+        json={"privacy": "public"}
+    )
+    assert pub_res.status_code == 200
+    slug = pub_res.json()["slug"]
+
+    # 5. User deletes creation as authenticated owner (no guest token needed anymore)
+    del_res = client.delete(f"/api/v1/creations/{creation_id}", headers=auth_headers)
     assert del_res.status_code == 200
 
-    # 5. Public URL MUST return 404 immediately
-    site_after = client.get(f"/api/v1/public/sites/{slug}")
-    assert site_after.status_code == 404
+    # 6. Public site is immediately inactive
+    assert client.get(f"/api/v1/public/sites/{slug}").status_code == 404
 
 
 def test_delete_nonexistent_creation_returns_404(client: TestClient, auth_headers: dict):
     del_res = client.delete("/api/v1/creations/00000000-0000-0000-0000-000000000000", headers=auth_headers)
     assert del_res.status_code == 404
-

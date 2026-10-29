@@ -3,11 +3,11 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlparse
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header
 from sqlalchemy.orm import Session
 from backend.app.api.v1.deps import get_db, get_current_user, get_optional_current_user
 from backend.app.core.config import settings
-from backend.app.core.security import hash_pin, verify_pin
+from backend.app.core.security import hash_pin, verify_pin, verify_guest_token
 from backend.app.models.user import User
 from backend.app.models.creation import Creation
 from backend.app.models.published_site import PublishedSite
@@ -56,6 +56,7 @@ def publish_creation(
     creation_id: str,
     pub_in: PublishRequest,
     request: Request,
+    guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
     current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
@@ -78,9 +79,16 @@ def publish_creation(
                 detail="Celebration not found."
             )
     else:
-        # If guest creation and user is now authenticated, claim ownership
+        # Unowned guest creation: requires valid guest token to publish or claim
+        if not verify_guest_token(guest_token, creation.guest_token_hash, creation.id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
+        # If user is authenticated and presents valid guest token, claim ownership
         if current_user:
             creation.owner_id = current_user.id
+            creation.guest_token_hash = None
 
     # Validate minimal required fields
     if not creation.recipient_name or not creation.recipient_name.strip():
@@ -166,6 +174,7 @@ def publish_creation(
 @router.post("/unpublish/{creation_id}")
 def unpublish_creation(
     creation_id: str,
+    guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
     current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
@@ -179,6 +188,13 @@ def unpublish_creation(
 
     if creation.owner_id:
         if not current_user or current_user.id != creation.owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
+    else:
+        # Unowned guest creation: requires valid guest token to unpublish
+        if not verify_guest_token(guest_token, creation.guest_token_hash, creation.id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Celebration not found."

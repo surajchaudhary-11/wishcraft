@@ -108,6 +108,48 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return response.json();
 }
 
+const GUEST_TOKENS_KEY = 'wishcraft_guest_tokens';
+
+export function getGuestToken(creationId: string): string | null {
+  if (!creationId || typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(GUEST_TOKENS_KEY);
+    if (raw) {
+      const map = JSON.parse(raw);
+      return map[creationId] || null;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export function saveGuestToken(creationId: string, token: string): void {
+  if (!creationId || !token || typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(GUEST_TOKENS_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[creationId] = token;
+    localStorage.setItem(GUEST_TOKENS_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+export function removeGuestToken(creationId: string): void {
+  if (!creationId || typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(GUEST_TOKENS_KEY);
+    if (raw) {
+      const map = JSON.parse(raw);
+      delete map[creationId];
+      localStorage.setItem(GUEST_TOKENS_KEY, JSON.stringify(map));
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export const api = {
   // Authentication
   auth: {
@@ -180,30 +222,56 @@ export const api = {
     list: () =>
       request<any[]>('/creations'),
 
-    get: (id: string) =>
-      request<any>(`/creations/${id}`),
+    get: (id: string) => {
+      const guestToken = getGuestToken(id);
+      const headers: Record<string, string> = {};
+      if (guestToken) headers['X-Guest-Token'] = guestToken;
+      return request<any>(`/creations/${id}`, { headers });
+    },
 
-    create: (data: any) =>
-      request<any>('/creations', {
+    create: async (data: any) => {
+      const res = await request<any>('/creations', {
         method: 'POST',
         body: JSON.stringify(data),
-      }),
+      });
+      if (res?.id && res?.guest_token) {
+        saveGuestToken(res.id, res.guest_token);
+      }
+      return res;
+    },
 
-    update: (id: string, data: any) =>
-      request<any>(`/creations/${id}`, {
+    update: (id: string, data: any) => {
+      const guestToken = getGuestToken(id);
+      const headers: Record<string, string> = {};
+      if (guestToken) headers['X-Guest-Token'] = guestToken;
+      return request<any>(`/creations/${id}`, {
         method: 'PUT',
+        headers,
         body: JSON.stringify(data),
-      }),
+      });
+    },
 
-    delete: (id: string) =>
-      request<{ message: string }>(`/creations/${id}`, {
+    delete: async (id: string) => {
+      const guestToken = getGuestToken(id);
+      const headers: Record<string, string> = {};
+      if (guestToken) headers['X-Guest-Token'] = guestToken;
+      const res = await request<{ message: string }>(`/creations/${id}`, {
         method: 'DELETE',
-      }),
+        headers,
+      });
+      removeGuestToken(id);
+      return res;
+    },
 
-    duplicate: (id: string) =>
-      request<any>(`/creations/${id}/duplicate`, {
+    duplicate: (id: string) => {
+      const guestToken = getGuestToken(id);
+      const headers: Record<string, string> = {};
+      if (guestToken) headers['X-Guest-Token'] = guestToken;
+      return request<any>(`/creations/${id}/duplicate`, {
         method: 'POST',
-      }),
+        headers,
+      });
+    },
   },
 
   // Permanent Media Uploads
@@ -220,16 +288,26 @@ export const api = {
 
   // Publishing & Public Celebrations
   public: {
-    publish: (creationId: string, data: { custom_slug?: string; privacy?: string; pin?: string; expires_in_days?: number }) =>
-      request<any>(`/public/publish/${creationId}`, {
+    publish: (creationId: string, data: { custom_slug?: string; privacy?: string; pin?: string; expires_in_days?: number }) => {
+      const guestToken = getGuestToken(creationId);
+      const headers: Record<string, string> = {};
+      if (guestToken) headers['X-Guest-Token'] = guestToken;
+      return request<any>(`/public/publish/${creationId}`, {
         method: 'POST',
+        headers,
         body: JSON.stringify(data),
-      }),
+      });
+    },
 
-    unpublish: (creationId: string) =>
-      request<{ message: string }>(`/public/unpublish/${creationId}`, {
+    unpublish: (creationId: string) => {
+      const guestToken = getGuestToken(creationId);
+      const headers: Record<string, string> = {};
+      if (guestToken) headers['X-Guest-Token'] = guestToken;
+      return request<{ message: string }>(`/public/unpublish/${creationId}`, {
         method: 'POST',
-      }),
+        headers,
+      });
+    },
 
     getPublicSite: (slug: string) =>
       request<any>(`/public/sites/${slug}`),

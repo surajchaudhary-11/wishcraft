@@ -11,6 +11,7 @@ class Creation(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    guest_token_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     
     occasion: Mapped[str] = mapped_column(String(50), default="birthday", nullable=False)
     recipient_name: Mapped[str] = mapped_column(String(100), default="", nullable=False)

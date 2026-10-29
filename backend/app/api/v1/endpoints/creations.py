@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Response
 from sqlalchemy.orm import Session
 from backend.app.api.v1.deps import get_db, get_current_user, get_optional_current_user
 from backend.app.models.user import User
+from backend.app.core.security import generate_guest_token, hash_guest_token, verify_guest_token
 import os
 import logging
 from backend.app.models.creation import Creation, CreationPhoto
@@ -72,14 +73,22 @@ def _to_creation_response(creation: Creation) -> CreationResponse:
 @router.post("", response_model=CreationResponse, status_code=status.HTTP_201_CREATED)
 def create_creation(
     creation_in: CreationCreate,
+    response: Response,
     current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
     """Create a new celebration draft."""
     owner_id = current_user.id if current_user else None
+    guest_token = None
+    guest_token_hash = None
+
+    if not owner_id:
+        guest_token = generate_guest_token()
+        guest_token_hash = hash_guest_token(guest_token)
     
     creation = Creation(
         owner_id=owner_id,
+        guest_token_hash=guest_token_hash,
         occasion=creation_in.occasion,
         recipient_name=creation_in.recipient_name,
         sender_name=creation_in.sender_name,
@@ -112,7 +121,11 @@ def create_creation(
 
     db.commit()
     db.refresh(creation)
-    return _to_creation_response(creation)
+    res = _to_creation_response(creation)
+    if guest_token:
+        res.guest_token = guest_token
+        response.headers["X-Guest-Token"] = guest_token
+    return res
 
 
 @router.get("", response_model=List[CreationResponse])
@@ -133,6 +146,7 @@ def list_creations(
 @router.get("/{creation_id}", response_model=CreationResponse)
 def get_creation(
     creation_id: str,
+    guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
     current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
@@ -152,6 +166,14 @@ def get_creation(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Celebration not found."
             )
+    else:
+        # If guest creation, verify guest ownership token unless public published
+        is_public_site = bool(creation.published_site and creation.published_site.is_published and creation.published_site.privacy == "public")
+        if not is_public_site and not verify_guest_token(guest_token, creation.guest_token_hash, creation.id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
 
     return _to_creation_response(creation)
 
@@ -160,6 +182,7 @@ def get_creation(
 def update_creation(
     creation_id: str,
     creation_in: CreationUpdate,
+    guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
     current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
@@ -179,9 +202,16 @@ def update_creation(
                 detail="Celebration not found."
             )
     else:
-        # If guest creation and user is now signed in, claim ownership
+        # Unowned guest creation: requires valid guest token to modify or claim
+        if not verify_guest_token(guest_token, creation.guest_token_hash, creation.id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
+        # If valid guest token and user is now authenticated, claim ownership
         if current_user:
             creation.owner_id = current_user.id
+            creation.guest_token_hash = None
 
     # Update fields if provided
     update_data = creation_in.model_dump(exclude_unset=True)
@@ -214,6 +244,7 @@ def update_creation(
 @router.delete("/{creation_id}", status_code=status.HTTP_200_OK)
 def delete_creation(
     creation_id: str,
+    guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
     current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
@@ -228,10 +259,17 @@ def delete_creation(
             detail="Celebration not found."
         )
 
-    # Ownership enforcement: if creation has an owner, requester must match owner
+    # Ownership enforcement: authenticated owner or verified guest token
     if creation.owner_id:
         if not current_user or current_user.id != creation.owner_id:
             # Conceal existence from unauthorized users
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
+    else:
+        # Unowned guest creation: REQUIRES valid guest token to delete
+        if not verify_guest_token(guest_token, creation.guest_token_hash, creation.id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Celebration not found."
@@ -261,16 +299,29 @@ def delete_creation(
 @router.post("/{creation_id}/duplicate", response_model=CreationResponse)
 def duplicate_creation(
     creation_id: str,
+    guest_token: Optional[str] = Header(None, alias="X-Guest-Token"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Create an exact copy of an existing celebration."""
     source = db.query(Creation).filter(Creation.id == creation_id).first()
-    if not source or (source.owner_id and source.owner_id != current_user.id):
+    if not source:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Celebration not found."
         )
+    if source.owner_id:
+        if source.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
+    else:
+        if not verify_guest_token(guest_token, source.guest_token_hash, source.id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
 
     copy = Creation(
         owner_id=current_user.id,

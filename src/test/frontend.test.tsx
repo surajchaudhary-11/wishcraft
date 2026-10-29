@@ -8,7 +8,7 @@ import { SignInPage } from '../pages/SignInPage';
 import { SignUpPage } from '../pages/SignUpPage';
 import { AuthProvider } from '../context/AuthContext';
 import { WishProvider } from '../context/WishContext';
-import { API_BASE_URL, BACKEND_HOST, getPublicWishUrl, api } from '../services/api';
+import { API_BASE_URL, BACKEND_HOST, getPublicWishUrl, api, getGuestToken, saveGuestToken, removeGuestToken } from '../services/api';
 import { ConfirmationModal } from '../components/common/ConfirmationModal';
 import { fireEvent } from '@testing-library/react';
 
@@ -164,5 +164,20 @@ describe('Deletion and Confirmation Behavior', () => {
 
   it('exposes api.creations.delete method for backend deletion', () => {
     expect(typeof api.creations.delete).toBe('function');
+  });
+});
+
+describe('Guest Ownership Token Security Helpers', () => {
+  it('safely stores, retrieves, and removes guest tokens in local storage', () => {
+    const testCid = 'test-guest-creation-123';
+    const testToken = 'gst_random_high_entropy_secret_abc123';
+
+    expect(getGuestToken(testCid)).toBeNull();
+
+    saveGuestToken(testCid, testToken);
+    expect(getGuestToken(testCid)).toBe(testToken);
+
+    removeGuestToken(testCid);
+    expect(getGuestToken(testCid)).toBeNull();
   });
 });
