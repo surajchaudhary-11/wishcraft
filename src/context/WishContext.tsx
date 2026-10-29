@@ -230,16 +230,40 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return savedWish;
   };
 
-  const deleteWish = async (id: string) => {
-    try {
-      if (!id.startsWith('draft-') && !id.startsWith('wish-')) {
+  const deleteWish = async (id: string): Promise<void> => {
+    // Determine whether this item is purely a local mock draft without backend persistence
+    const target = creations.find(w => w.id === id);
+    const isLocalMockWithoutSlug = (id.startsWith('draft-') || id.startsWith('wish-')) && !target?.slug;
+
+    if (!isLocalMockWithoutSlug) {
+      try {
         await api.creations.delete(id);
+      } catch (err: any) {
+        // If 404, it might have already been removed from the backend database
+        if (err.status !== 404) {
+          const detail = err.data?.detail || err.message || 'Failed to delete celebration on server.';
+          showToast(detail, 'error');
+          throw err;
+        }
       }
-    } catch (e) {
-      console.warn('Failed to delete on server:', e);
     }
-    setCreations(prev => prev.filter(w => w.id !== id));
-    showToast('Creation removed', 'info');
+
+    // Only update client state and mirror storage when backend confirmed deletion
+    setCreations(prev => {
+      const updated = prev.filter(w => w.id !== id);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Could not update creations in localStorage:', e);
+      }
+      return updated;
+    });
+
+    if (currentWish.id === id) {
+      resetCurrentWish();
+    }
+
+    showToast('Celebration deleted successfully. Public link is now inactive.', 'success');
   };
 
   const duplicateWish = async (id: string): Promise<WishConfig | null> => {
@@ -341,8 +365,16 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const unpublishWish = async (id: string) => {
     try {
       await api.public.unpublish(id);
-      setCurrentWish(prev => prev.id === id ? { ...prev, isPublished: false, status: 'draft' } : prev);
-      setCreations(prev => prev.map(c => c.id === id ? { ...c, isPublished: false, status: 'draft' } : c));
+      setCurrentWish(prev => prev.id === id ? { ...prev, isPublished: false, status: 'draft' as const } : prev);
+      setCreations(prev => {
+        const next = prev.map(c => c.id === id ? { ...c, isPublished: false, status: 'draft' as const } : c);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
       showToast('Celebration unpublished. Public link is now inactive.', 'info');
     } catch (e: any) {
       showToast(e.message || 'Failed to unpublish celebration.', 'error');

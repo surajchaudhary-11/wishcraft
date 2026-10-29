@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlparse
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.orm import Session
 from backend.app.api.v1.deps import get_db, get_current_user, get_optional_current_user
 from backend.app.core.config import settings
@@ -166,16 +166,23 @@ def publish_creation(
 @router.post("/unpublish/{creation_id}")
 def unpublish_creation(
     creation_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
     """Unpublish a celebration website so the public link becomes inactive."""
     creation = db.query(Creation).filter(Creation.id == creation_id).first()
-    if not creation or (creation.owner_id and creation.owner_id != current_user.id):
+    if not creation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Celebration not found."
         )
+
+    if creation.owner_id:
+        if not current_user or current_user.id != creation.owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
 
     pub = db.query(PublishedSite).filter(PublishedSite.creation_id == creation.id).first()
     if pub:
@@ -190,16 +197,21 @@ def unpublish_creation(
 
 
 @router.get("/sites/{slug}", response_model=PublicSiteViewResponse)
-def get_public_site(slug: str, db: Session = Depends(get_db)):
+def get_public_site(slug: str, response: Response, db: Session = Depends(get_db)):
     """
     Public celebration site endpoint accessible to any visitor.
     Does NOT require creator authentication.
     """
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     pub = db.query(PublishedSite).filter(PublishedSite.slug == slug.lower().strip()).first()
     if not pub or not pub.is_published:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Celebration website not found or has been unpublished by the creator."
+            detail="Celebration website not found or has been unpublished by the creator.",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate, max-age=0"}
         )
 
     # Check expiration
@@ -234,18 +246,23 @@ def get_public_site(slug: str, db: Session = Depends(get_db)):
 
 
 @router.post("/sites/{slug}/verify-pin", response_model=PublicSiteViewResponse)
-def verify_site_pin(slug: str, req: PinVerifyRequest, db: Session = Depends(get_db)):
+def verify_site_pin(slug: str, req: PinVerifyRequest, response: Response, db: Session = Depends(get_db)):
     """Verify PIN for protected celebration site and return celebration content."""
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     pub = db.query(PublishedSite).filter(PublishedSite.slug == slug.lower().strip()).first()
     if not pub or not pub.is_published:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Celebration not found."
+            detail="Celebration not found.",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate, max-age=0"}
         )
 
     if not pub.pin_hash:
         # Not PIN protected, return directly
-        return get_public_site(slug, db)
+        return get_public_site(slug, response, db)
 
     if not verify_pin(req.pin, pub.pin_hash):
         raise HTTPException(

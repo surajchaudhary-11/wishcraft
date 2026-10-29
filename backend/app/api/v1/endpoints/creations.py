@@ -4,7 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from backend.app.api.v1.deps import get_db, get_current_user, get_optional_current_user
 from backend.app.models.user import User
+import os
+import logging
 from backend.app.models.creation import Creation, CreationPhoto
+from backend.app.models.published_site import PublishedSite
+from backend.app.models.event import SiteEvent
+from backend.app.core.config import settings
+
+logger = logging.getLogger(__name__)
 from backend.app.schemas.creation import (
     CreationCreate, CreationUpdate, CreationResponse, PhotoMemoryItem, PublishedSiteBrief
 )
@@ -207,10 +214,13 @@ def update_creation(
 @router.delete("/{creation_id}", status_code=status.HTTP_200_OK)
 def delete_creation(
     creation_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete celebration draft and all related media and published links."""
+    """
+    Delete celebration draft and all related media and published links.
+    Immediately unpublishes and removes any public URLs so they return 404.
+    """
     creation = db.query(Creation).filter(Creation.id == creation_id).first()
     if not creation:
         raise HTTPException(
@@ -218,15 +228,34 @@ def delete_creation(
             detail="Celebration not found."
         )
 
-    if creation.owner_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Celebration not found."
-        )
+    # Ownership enforcement: if creation has an owner, requester must match owner
+    if creation.owner_id:
+        if not current_user or current_user.id != creation.owner_id:
+            # Conceal existence from unauthorized users
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Celebration not found."
+            )
+
+    # Explicitly clean up site events and mark published site inactive
+    if creation.published_site:
+        creation.published_site.is_published = False
+        db.query(SiteEvent).filter(SiteEvent.published_site_id == creation.published_site.id).delete(synchronize_session=False)
+
+    # Clean up local uploads if applicable
+    for photo in creation.photos:
+        if photo.url and photo.url.startswith("/api/v1/uploads/"):
+            filename = photo.url.replace("/api/v1/uploads/", "")
+            local_path = os.path.join(settings.UPLOAD_DIR, filename)
+            if os.path.exists(local_path):
+                try:
+                    os.remove(local_path)
+                except Exception as e:
+                    logger.warning(f"Failed to remove uploaded photo file {local_path}: {e}")
 
     db.delete(creation)
     db.commit()
-    return {"message": "Celebration deleted successfully."}
+    return {"message": "Celebration deleted successfully. All public links have been unpublished."}
 
 
 @router.post("/{creation_id}/duplicate", response_model=CreationResponse)

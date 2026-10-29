@@ -26,6 +26,7 @@ export const MyCreationsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [wishToDelete, setWishToDelete] = useState<WishConfig | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Filter creations
   const filteredCreations = useMemo(() => {
@@ -52,10 +53,16 @@ export const MyCreationsPage: React.FC = () => {
     duplicateWish(id);
   };
 
-  const handleDeleteConfirm = () => {
-    if (wishToDelete) {
-      deleteWish(wishToDelete.id);
+  const handleDeleteConfirm = async () => {
+    if (!wishToDelete || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await deleteWish(wishToDelete.id);
       setWishToDelete(null);
+    } catch {
+      // Error feedback is already surfaced through context toast
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -325,12 +332,14 @@ export const MyCreationsPage: React.FC = () => {
       <ConfirmationModal
         isOpen={!!wishToDelete}
         title="Delete Celebration Website?"
-        message={`Are you sure you want to delete the celebration for "${wishToDelete?.recipientName || 'this recipient'}"? This action cannot be undone.`}
-        confirmLabel="Yes, Delete"
+        message={`Are you sure you want to delete the celebration for "${wishToDelete?.recipientName || 'this recipient'}"? This action cannot be undone and its public link will become permanently inactive.`}
+        confirmLabel={isDeleting ? 'Deleting...' : 'Yes, Delete'}
         cancelLabel="Cancel"
         variant="danger"
         onConfirm={handleDeleteConfirm}
-        onCancel={() => setWishToDelete(null)}
+        onCancel={() => {
+          if (!isDeleting) setWishToDelete(null);
+        }}
       />
 
     </div>

@@ -8,7 +8,9 @@ import { SignInPage } from '../pages/SignInPage';
 import { SignUpPage } from '../pages/SignUpPage';
 import { AuthProvider } from '../context/AuthContext';
 import { WishProvider } from '../context/WishContext';
-import { API_BASE_URL, BACKEND_HOST, getPublicWishUrl } from '../services/api';
+import { API_BASE_URL, BACKEND_HOST, getPublicWishUrl, api } from '../services/api';
+import { ConfirmationModal } from '../components/common/ConfirmationModal';
+import { fireEvent } from '@testing-library/react';
 
 describe('Templates Gallery Data', () => {
   it('contains exactly 8 unique celebration templates', () => {
@@ -129,5 +131,38 @@ describe('Public Link and API Base URL Normalization', () => {
     expect(url).toContain('/wish/sophia-birthday-123');
     expect(url).not.toContain('//wish/');
     expect(getPublicWishUrl('')).toBe('');
+  });
+});
+
+describe('Deletion and Confirmation Behavior', () => {
+  it('renders confirmation modal and handles confirm / cancel actions', () => {
+    let confirmed = false;
+    let cancelled = false;
+    render(
+      <ConfirmationModal
+        isOpen={true}
+        title="Delete Celebration Website?"
+        message="Are you sure you want to delete the celebration? This action cannot be undone and its public link will become permanently inactive."
+        confirmLabel="Yes, Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={() => { confirmed = true; }}
+        onCancel={() => { cancelled = true; }}
+      />
+    );
+    expect(screen.getByText('Delete Celebration Website?')).toBeInTheDocument();
+    expect(screen.getByText(/public link will become permanently inactive/i)).toBeInTheDocument();
+
+    const confirmBtn = screen.getByRole('button', { name: /Yes, Delete/i });
+    fireEvent.click(confirmBtn);
+    expect(confirmed).toBe(true);
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel/i });
+    fireEvent.click(cancelBtn);
+    expect(cancelled).toBe(true);
+  });
+
+  it('exposes api.creations.delete method for backend deletion', () => {
+    expect(typeof api.creations.delete).toBe('function');
   });
 });
