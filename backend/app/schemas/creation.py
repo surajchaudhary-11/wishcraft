@@ -69,6 +69,7 @@ class CreationResponse(BaseModel):
 
     id: str
     owner_id: Optional[str] = None
+    guest_token: Optional[str] = None
     occasion: str
     recipient_name: str
     sender_name: str
