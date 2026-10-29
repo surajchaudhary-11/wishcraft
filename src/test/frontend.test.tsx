@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { PublicWishPage } from '../pages/PublicWishPage';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { TEMPLATES } from '../data/templates';
@@ -179,5 +180,71 @@ describe('Guest Ownership Token Security Helpers', () => {
 
     removeGuestToken(testCid);
     expect(getGuestToken(testCid)).toBeNull();
+  });
+});
+
+
+describe('Public Celebration Page Responsive Footer Layout (Issue #8)', () => {
+  it('renders compact responsive footer with no excessive space on mobile and preserved desktop layout', async () => {
+    vi.spyOn(api.public, 'getPublicSite').mockResolvedValueOnce({
+      is_pin_required: false,
+      creation: {
+        id: 'test-wish-123',
+        occasion: 'Birthday',
+        recipient_name: 'Alex',
+        sender_name: 'Sam',
+        relationship: 'Friend',
+        message: 'Happy Birthday Alex!',
+        tone: 'Warm',
+        template_id: 'midnight-surprise',
+        photo_url: '',
+        photo_memories: [],
+        color_scheme: 'Purple',
+        enable_confetti: true,
+        enable_floating_hearts: false,
+        enable_sound_demo: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    });
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/wish/alex-birthday']}>
+        <Routes>
+          <Route path="/wish/:slug" element={<PublicWishPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for the wish content to load
+    expect(await screen.findByRole('heading', { name: /Happy Birthday/i })).toBeInTheDocument();
+
+    // Verify main container has responsive flex expansion and mobile bottom padding
+    const mainElement = container.querySelector('main');
+    expect(mainElement).toBeInTheDocument();
+    expect(mainElement).toHaveClass('flex-1');
+    expect(mainElement).toHaveClass('flex');
+    expect(mainElement).toHaveClass('flex-col');
+    expect(mainElement).toHaveClass('pb-14');
+    expect(mainElement).toHaveClass('sm:pb-0');
+    expect(mainElement?.className).toContain('[&>*]:flex-1');
+
+    // Verify floating footer watermark badge is compact on mobile and properly aligned
+    const footerElement = container.querySelector('footer');
+    expect(footerElement).toBeInTheDocument();
+    expect(footerElement).toHaveClass('fixed');
+    expect(footerElement).toHaveClass('bottom-2.5');
+    expect(footerElement).toHaveClass('right-2.5');
+    expect(footerElement).toHaveClass('sm:bottom-3');
+    expect(footerElement).toHaveClass('sm:right-3');
+    expect(footerElement).toHaveClass('z-40');
+
+    // Verify footer link styling
+    const badgeLink = screen.getByRole('link', { name: /Made with WishCraft/i });
+    expect(badgeLink).toBeInTheDocument();
+    expect(badgeLink.className).toContain('text-[11px]');
+    expect(badgeLink.className).toContain('sm:text-xs');
+    expect(badgeLink.className).toContain('px-3');
+    expect(badgeLink.className).toContain('sm:px-3.5');
   });
 });
