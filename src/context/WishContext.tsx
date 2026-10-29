@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { WishConfig } from '../types';
 import { INITIAL_SAMPLE_WISHES, DEFAULT_NEW_WISH } from '../data/sampleWishes';
 import { WishContext } from './WishContextBase';
-import { api, BACKEND_HOST } from '../services/api';
+import { api, BACKEND_HOST, getPublicWishUrl } from '../services/api';
 import { useAuth } from './AuthContext';
 
 const STORAGE_KEY = 'wishcraft_saved_creations';
@@ -328,9 +328,8 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Update in creations list
     setCreations(prev => prev.map(c => c.id === saved.id ? updatedWish : c));
 
-    // Construct local frontend public URL
-    const frontendBase = window.location.origin;
-    const publicUrl = `${frontendBase}/wish/${pubRes.slug}`;
+    // Construct canonical public URL (never localhost in production)
+    const publicUrl = getPublicWishUrl(pubRes.slug);
 
     return {
       slug: pubRes.slug,

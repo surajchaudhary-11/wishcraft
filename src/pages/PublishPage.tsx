@@ -18,6 +18,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useWish } from '../context/WishContext';
+import { getPublicWishUrl } from '../services/api';
 import { QRCodeSvg } from '../components/common/QRCodeSvg';
 import { triggerFireworks } from '../utils/confetti';
 
@@ -33,7 +34,7 @@ export const PublishPage: React.FC = () => {
 
   // Always derive public URL from the slug using current browser window origin
   const effectiveSlug = currentWish.slug || (publishedUrl ? publishedUrl.split('/wish/').pop() : '');
-  const activeUrl = effectiveSlug ? `${window.location.origin}/wish/${effectiveSlug}` : '';
+  const activeUrl = effectiveSlug ? getPublicWishUrl(effectiveSlug) : '';
 
   const handlePublish = async (overridePrivacy?: 'public' | 'unlisted' | 'pin_protected') => {
     if (!currentWish.recipientName?.trim()) {

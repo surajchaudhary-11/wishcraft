@@ -14,6 +14,32 @@ function resolveApiBaseUrl(): string {
 export const API_BASE_URL = resolveApiBaseUrl();
 export const BACKEND_HOST = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
+/**
+ * Canonical URL resolver for public celebration websites.
+ * Guarantees that production links NEVER contain localhost or 127.0.0.1.
+ */
+export function getPublicWishUrl(slug: string): string {
+  if (!slug) return '';
+  const cleanSlug = slug.trim();
+
+  if (typeof window !== 'undefined') {
+    const isLocalhost =
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname.endsWith('.local');
+
+    if (isLocalhost) {
+      return `${window.location.origin}/wish/${cleanSlug}`;
+    }
+
+    const deployedOrigin = window.location.origin || 'https://wishcraft-chi.vercel.app';
+    return `${deployedOrigin}/wish/${cleanSlug}`;
+  }
+
+  const fallback = import.meta.env.PROD ? 'https://wishcraft-chi.vercel.app' : 'http://localhost:5173';
+  return `${fallback}/wish/${cleanSlug}`;
+}
+
 export class ApiError extends Error {
   status: number;
   data: any;

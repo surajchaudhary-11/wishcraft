@@ -8,7 +8,7 @@ import { SignInPage } from '../pages/SignInPage';
 import { SignUpPage } from '../pages/SignUpPage';
 import { AuthProvider } from '../context/AuthContext';
 import { WishProvider } from '../context/WishContext';
-import { API_BASE_URL, BACKEND_HOST } from '../services/api';
+import { API_BASE_URL, BACKEND_HOST, getPublicWishUrl } from '../services/api';
 
 describe('Templates Gallery Data', () => {
   it('contains exactly 8 unique celebration templates', () => {
@@ -122,5 +122,12 @@ describe('Public Link and API Base URL Normalization', () => {
   it('ensures BACKEND_HOST excludes /api/v1 and trailing slashes', () => {
     expect(BACKEND_HOST).not.toContain('/api/v1');
     expect(BACKEND_HOST.endsWith('/')).toBe(false);
+  });
+
+  it('generates valid public celebration URLs without double slashes', () => {
+    const url = getPublicWishUrl('sophia-birthday-123');
+    expect(url).toContain('/wish/sophia-birthday-123');
+    expect(url).not.toContain('//wish/');
+    expect(getPublicWishUrl('')).toBe('');
   });
 });

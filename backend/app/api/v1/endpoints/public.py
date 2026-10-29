@@ -28,22 +28,11 @@ def _slugify(text: str) -> str:
     return s.strip("-") or "celebration"
 
 
-def resolve_public_url(slug: str, request: Request) -> str:
+def resolve_public_url(slug: str) -> str:
     """
-    Safely construct the public celebration URL using the trusted frontend origin.
-    Prevents hardcoded localhost URLs from leaking into production/preview responses.
+    Safely construct the public celebration URL using the validated, configured frontend origin.
+    Never uses arbitrary untrusted headers or localhost in production.
     """
-    origin = request.headers.get("origin") or request.headers.get("referer") or ""
-    if origin:
-        parsed = urlparse(origin)
-        clean_origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
-        if (
-            clean_origin in settings.cors_origins
-            or clean_origin.endswith(".vercel.app")
-            or "localhost" in clean_origin
-        ):
-            return f"{clean_origin}/wish/{slug}"
-
     base = settings.effective_frontend_url
     return f"{base}/wish/{slug}"
 
@@ -159,7 +148,7 @@ def publish_creation(
     db.commit()
     db.refresh(pub_record)
 
-    public_url = resolve_public_url(pub_record.slug, request)
+    public_url = resolve_public_url(pub_record.slug)
 
     return PublishResponse(
         id=pub_record.id,
