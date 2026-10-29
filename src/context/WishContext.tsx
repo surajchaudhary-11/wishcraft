@@ -188,14 +188,23 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let res: any;
 
       if (isBackendUuid) {
-        res = await api.creations.update(currentWish.id, payload);
+        try {
+          res = await api.creations.update(currentWish.id, payload);
+        } catch (updateErr: any) {
+          if (updateErr.status === 404) {
+            console.warn('Creation ID not found on server, creating fresh record:', currentWish.id);
+            res = await api.creations.create(payload);
+          } else {
+            throw updateErr;
+          }
+        }
       } else {
         res = await api.creations.create(payload);
       }
 
       savedWish = mapBackendToWishConfig(res);
       setSaveStatus('saved');
-      showToast('Celebration saved successfully to your account!', 'success');
+      showToast('Celebration saved successfully!', 'success');
     } catch (err: any) {
       console.warn('API save error, saving to local offline storage:', err);
       // Local fallback save
@@ -282,12 +291,30 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentWish(saved);
     }
 
-    // 2. Call backend publish
-    const pubRes = await api.public.publish(saved.id, {
-      custom_slug: options?.custom_slug,
-      privacy: options?.privacy || 'public',
-      pin: options?.pin,
-    });
+    // 2. Call backend publish with self-healing fallback
+    let pubRes: any;
+    try {
+      pubRes = await api.public.publish(saved.id, {
+        custom_slug: options?.custom_slug,
+        privacy: options?.privacy || 'public',
+        pin: options?.pin,
+      });
+    } catch (pubErr: any) {
+      if (pubErr.status === 404) {
+        console.warn('Backend reported celebration not found during publish. Creating fresh record...');
+        const payload = mapWishConfigToBackend(saved);
+        const freshRes = await api.creations.create(payload);
+        saved = mapBackendToWishConfig(freshRes);
+        setCurrentWish(saved);
+        pubRes = await api.public.publish(saved.id, {
+          custom_slug: options?.custom_slug,
+          privacy: options?.privacy || 'public',
+          pin: options?.pin,
+        });
+      } else {
+        throw pubErr;
+      }
+    }
 
     // 3. Update current wish with slug
     const updatedWish: WishConfig = {

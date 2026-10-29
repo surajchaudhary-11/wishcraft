@@ -85,6 +85,11 @@ export const WizardPage: React.FC = () => {
   };
 
   const handlePublish = async () => {
+    if (!validateStep2()) {
+      showToast('Please enter recipient name and celebration message before publishing.', 'error');
+      setCurrentStep(2);
+      return;
+    }
     await saveCurrentWish();
     navigate('/publish');
   };

@@ -81,6 +81,14 @@ export const EditorPage: React.FC = () => {
   };
 
   const handleSaveAndPublish = async () => {
+    if (!currentWish.recipientName?.trim()) {
+      showToast('Please enter a recipient name before publishing.', 'error');
+      return;
+    }
+    if (!currentWish.message?.trim()) {
+      showToast('Please enter a celebration message before publishing.', 'error');
+      return;
+    }
     await saveCurrentWish();
     navigate('/publish');
   };

@@ -88,6 +88,10 @@ def publish_creation(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Celebration not found."
             )
+    else:
+        # If guest creation and user is now authenticated, claim ownership
+        if current_user:
+            creation.owner_id = current_user.id
 
     # Validate minimal required fields
     if not creation.recipient_name or not creation.recipient_name.strip():
