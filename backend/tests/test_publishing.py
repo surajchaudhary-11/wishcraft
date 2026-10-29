@@ -98,3 +98,75 @@ def test_pin_protected_publishing(client: TestClient, auth_headers: dict):
     assert correct_pin.json()["is_pin_required"] is False
     assert correct_pin.json()["creation"]["recipient_name"] == "Secret Celebrant"
 
+
+
+def test_public_url_origin_resolution(client: TestClient, auth_headers: dict):
+    # Create draft
+    c_res = client.post("/api/v1/creations", headers=auth_headers, json={
+        "occasion": "birthday",
+        "recipient_name": "Origin Tester",
+        "message": "Testing public URL generation with configured origin",
+        "template_id": "blush-celebration"
+    })
+    c_id = c_res.json()["id"]
+
+    # Publish returns valid URL matching configured frontend origin
+    res = client.post(
+        f"/api/v1/public/publish/{c_id}",
+        headers=auth_headers,
+        json={"privacy": "public"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "/wish/" in data["public_url"]
+    assert "//wish/" not in data["public_url"]
+    assert data["slug"] in data["public_url"]
+
+
+def test_nonexistent_and_invalid_public_sites(client: TestClient):
+    # Non-existent slug returns 404
+    res = client.get("/api/v1/public/sites/non-existent-celebration-slug-999")
+    assert res.status_code == 404
+    assert "not found" in res.json()["detail"].lower()
+
+
+def test_guest_publishing_and_ownership_claiming(client: TestClient, auth_headers: dict):
+    # 1. Create creation as guest (no auth_headers)
+    c_res = client.post("/api/v1/creations", json={
+        "occasion": "anniversary",
+        "recipient_name": "Guest Celebrant",
+        "message": "Created by guest user initially",
+        "template_id": "love-letter"
+    })
+    assert c_res.status_code == 201
+    c_id = c_res.json()["id"]
+    assert c_res.json()["owner_id"] is None
+
+    # 2. Publish with auth_headers (user claims ownership)
+    pub_res = client.post(
+        f"/api/v1/public/publish/{c_id}",
+        headers=auth_headers,
+        json={"privacy": "public"}
+    )
+    assert pub_res.status_code == 200
+    slug = pub_res.json()["slug"]
+
+    # 3. Retrieve site publicly
+    site_res = client.get(f"/api/v1/public/sites/{slug}")
+    assert site_res.status_code == 200
+    assert site_res.json()["creation"]["recipient_name"] == "Guest Celebrant"
+
+    # 4. Check that creation now has owner_id assigned to current user
+    me_res = client.get("/api/v1/creations", headers=auth_headers)
+    assert me_res.status_code == 200
+    owned_ids = [c["id"] for c in me_res.json()]
+    assert c_id in owned_ids
+
+
+def test_publish_nonexistent_creation_returns_404(client: TestClient):
+    res = client.post(
+        "/api/v1/public/publish/00000000-0000-0000-0000-000000000000",
+        json={"privacy": "public"}
+    )
+    assert res.status_code == 404
+    assert res.json()["detail"] == "Celebration not found."

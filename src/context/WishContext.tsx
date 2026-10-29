@@ -2,11 +2,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { WishConfig } from '../types';
 import { INITIAL_SAMPLE_WISHES, DEFAULT_NEW_WISH } from '../data/sampleWishes';
 import { WishContext } from './WishContextBase';
-import { api } from '../services/api';
+import { api, BACKEND_HOST, getPublicWishUrl } from '../services/api';
 import { useAuth } from './AuthContext';
 
 const STORAGE_KEY = 'wishcraft_saved_creations';
 const DRAFT_KEY = 'wishcraft_active_draft';
+
+function sanitizeMediaUrl(url?: string): string {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${BACKEND_HOST}${path}`;
+}
 
 function mapBackendToWishConfig(backendItem: any): WishConfig {
   return {
@@ -17,10 +24,10 @@ function mapBackendToWishConfig(backendItem: any): WishConfig {
     relationship: backendItem.relationship || 'Friend',
     message: backendItem.message || '',
     tone: backendItem.tone || 'Heartfelt',
-    photoUrl: backendItem.photo_url || '',
+    photoUrl: sanitizeMediaUrl(backendItem.photo_url),
     photoMemories: (backendItem.photo_memories || []).map((m: any) => ({
       id: m.id || m.asset_id,
-      url: m.url,
+      url: sanitizeMediaUrl(m.url),
       caption: m.caption,
     })),
     templateId: backendItem.template_id || 'blush-celebration',
@@ -158,7 +165,7 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Prepend host if relative path returned
       const fullUrl = res.url.startsWith('http')
         ? res.url
-        : `http://localhost:8000${res.url}`;
+        : `${BACKEND_HOST}${res.url}`;
       return fullUrl;
     } catch (error) {
       console.warn('Backend upload failed, using local fallback:', error);
@@ -181,14 +188,23 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let res: any;
 
       if (isBackendUuid) {
-        res = await api.creations.update(currentWish.id, payload);
+        try {
+          res = await api.creations.update(currentWish.id, payload);
+        } catch (updateErr: any) {
+          if (updateErr.status === 404) {
+            console.warn('Creation ID not found on server, creating fresh record:', currentWish.id);
+            res = await api.creations.create(payload);
+          } else {
+            throw updateErr;
+          }
+        }
       } else {
         res = await api.creations.create(payload);
       }
 
       savedWish = mapBackendToWishConfig(res);
       setSaveStatus('saved');
-      showToast('Celebration saved successfully to your account!', 'success');
+      showToast('Celebration saved successfully!', 'success');
     } catch (err: any) {
       console.warn('API save error, saving to local offline storage:', err);
       // Local fallback save
@@ -265,14 +281,40 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Publish current wish
   const publishCurrentWish = async (options?: { custom_slug?: string; privacy?: string; pin?: string }) => {
     // 1. Ensure draft is saved first
-    const saved = await saveCurrentWish();
+    let saved = await saveCurrentWish();
 
-    // 2. Call backend publish
-    const pubRes = await api.public.publish(saved.id, {
-      custom_slug: options?.custom_slug,
-      privacy: options?.privacy || 'public',
-      pin: options?.pin,
-    });
+    // If still a local draft ID, force persistence to backend before publishing
+    if (!saved.id || saved.id.startsWith('draft-') || saved.id.startsWith('wish-')) {
+      const payload = mapWishConfigToBackend(saved);
+      const res = await api.creations.create(payload);
+      saved = mapBackendToWishConfig(res);
+      setCurrentWish(saved);
+    }
+
+    // 2. Call backend publish with self-healing fallback
+    let pubRes: any;
+    try {
+      pubRes = await api.public.publish(saved.id, {
+        custom_slug: options?.custom_slug,
+        privacy: options?.privacy || 'public',
+        pin: options?.pin,
+      });
+    } catch (pubErr: any) {
+      if (pubErr.status === 404) {
+        console.warn('Backend reported celebration not found during publish. Creating fresh record...');
+        const payload = mapWishConfigToBackend(saved);
+        const freshRes = await api.creations.create(payload);
+        saved = mapBackendToWishConfig(freshRes);
+        setCurrentWish(saved);
+        pubRes = await api.public.publish(saved.id, {
+          custom_slug: options?.custom_slug,
+          privacy: options?.privacy || 'public',
+          pin: options?.pin,
+        });
+      } else {
+        throw pubErr;
+      }
+    }
 
     // 3. Update current wish with slug
     const updatedWish: WishConfig = {
@@ -286,9 +328,8 @@ export const WishProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Update in creations list
     setCreations(prev => prev.map(c => c.id === saved.id ? updatedWish : c));
 
-    // Construct local frontend public URL
-    const frontendBase = window.location.origin;
-    const publicUrl = `${frontendBase}/wish/${pubRes.slug}`;
+    // Construct canonical public URL (never localhost in production)
+    const publicUrl = getPublicWishUrl(pubRes.slug);
 
     return {
       slug: pubRes.slug,

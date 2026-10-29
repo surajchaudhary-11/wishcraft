@@ -33,13 +33,22 @@ class Settings(BaseSettings):
 
     # CORS & Origins
     FRONTEND_URL: str = "http://localhost:5173"
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,https://wishcraft-chi.vercel.app"
+
+    @property
+    def effective_frontend_url(self) -> str:
+        if self.FRONTEND_URL and "localhost" not in self.FRONTEND_URL:
+            return self.FRONTEND_URL.rstrip("/")
+        if self.ENVIRONMENT == "production" or os.getenv("RENDER"):
+            return "https://wishcraft-chi.vercel.app"
+        return (self.FRONTEND_URL or "http://localhost:5173").rstrip("/")
 
     @property
     def cors_origins(self) -> List[str]:
         origins = [orig.strip() for orig in self.ALLOWED_ORIGINS.split(",") if orig.strip()]
-        if self.FRONTEND_URL not in origins:
-            origins.append(self.FRONTEND_URL.strip())
+        for url in [self.FRONTEND_URL, self.effective_frontend_url]:
+            if url and url.strip() not in origins:
+                origins.append(url.strip())
         return origins
 
     # Uploads

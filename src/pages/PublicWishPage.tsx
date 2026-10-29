@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Lock, Sparkles, AlertCircle, Gift, ArrowRight, KeyRound } from 'lucide-react';
-import { api } from '../services/api';
+import { api, BACKEND_HOST } from '../services/api';
 import { TemplateRenderer } from '../components/templates/TemplateRenderer';
 import type { WishConfig } from '../types';
+
+function sanitizeMediaUrl(url?: string): string {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${BACKEND_HOST}${path}`;
+}
 
 export const PublicWishPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -27,7 +34,8 @@ export const PublicWishPage: React.FC = () => {
 
     async function fetchPublicSite() {
       try {
-        const siteData = await api.public.getPublicSite(slug!);
+        const cleanSlug = (slug || '').trim().toLowerCase();
+        const siteData = await api.public.getPublicSite(cleanSlug);
         if (!isMounted) return;
 
         if (siteData.is_pin_required) {
@@ -42,8 +50,11 @@ export const PublicWishPage: React.FC = () => {
             relationship: c.relationship,
             message: c.message,
             tone: c.tone,
-            photoUrl: c.photo_url,
-            photoMemories: c.photo_memories || [],
+            photoUrl: sanitizeMediaUrl(c.photo_url),
+            photoMemories: (c.photo_memories || []).map((m: any) => ({
+              ...m,
+              url: sanitizeMediaUrl(m.url),
+            })),
             templateId: c.template_id,
             colorScheme: c.color_scheme,
             enableConfetti: c.enable_confetti,
@@ -96,8 +107,11 @@ export const PublicWishPage: React.FC = () => {
           relationship: c.relationship,
           message: c.message,
           tone: c.tone,
-          photoUrl: c.photo_url,
-          photoMemories: c.photo_memories || [],
+          photoUrl: sanitizeMediaUrl(c.photo_url),
+          photoMemories: (c.photo_memories || []).map((m: any) => ({
+            ...m,
+            url: sanitizeMediaUrl(m.url),
+          })),
           templateId: c.template_id,
           colorScheme: c.color_scheme,
           enableConfetti: c.enable_confetti,
