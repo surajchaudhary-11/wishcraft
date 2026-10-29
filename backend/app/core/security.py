@@ -1,3 +1,6 @@
+import secrets
+import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Union
 import jwt
@@ -91,3 +94,39 @@ def verify_password_reset_token(token: str) -> Optional[str]:
     except jwt.PyJWTError:
         return None
 
+
+
+def generate_guest_token() -> str:
+    """Generate a high-entropy 256-bit secret token for guest creation ownership."""
+    return f"gst_{secrets.token_urlsafe(32)}"
+
+
+def hash_guest_token(token: str) -> str:
+    """Hash guest token with SHA-256 for secure server-side verification."""
+    return hashlib.sha256(token.strip().encode()).hexdigest()
+
+
+def verify_guest_token(token: Optional[str], stored_hash: Optional[str], creation_id: Optional[str] = None) -> bool:
+    """
+    Verify a guest token against stored hash (or HMAC signature for legacy items).
+    Uses constant-time comparison to prevent timing attacks.
+    """
+    if not token or not token.strip():
+        return False
+
+    clean_token = token.strip()
+
+    if stored_hash:
+        computed = hash_guest_token(clean_token)
+        return hmac.compare_digest(computed, stored_hash)
+
+    if creation_id:
+        expected_sig = hmac.new(
+            settings.SECRET_KEY.encode(),
+            f"guest-ownership:{creation_id}".encode(),
+            hashlib.sha256
+        ).hexdigest()
+        if hmac.compare_digest(clean_token, expected_sig):
+            return True
+
+    return False

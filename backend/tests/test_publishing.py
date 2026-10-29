@@ -142,10 +142,11 @@ def test_guest_publishing_and_ownership_claiming(client: TestClient, auth_header
     c_id = c_res.json()["id"]
     assert c_res.json()["owner_id"] is None
 
-    # 2. Publish with auth_headers (user claims ownership)
+    # 2. Publish with auth_headers and verified X-Guest-Token (user claims ownership)
+    guest_token = c_res.json()["guest_token"]
     pub_res = client.post(
         f"/api/v1/public/publish/{c_id}",
-        headers=auth_headers,
+        headers={**auth_headers, "X-Guest-Token": guest_token},
         json={"privacy": "public"}
     )
     assert pub_res.status_code == 200
